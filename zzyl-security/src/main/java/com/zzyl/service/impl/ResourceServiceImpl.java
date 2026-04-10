@@ -1,0 +1,144 @@
+package com.zzyl.service.impl;
+
+import cn.hutool.core.bean.BeanException;
+import cn.hutool.core.bean.BeanUtil;
+import com.github.pagehelper.util.StringUtil;
+import com.zzyl.constant.SuperConstant;
+import com.zzyl.dto.ResourceDto;
+import com.zzyl.entity.Resource;
+import com.zzyl.enums.BasicEnum;
+import com.zzyl.exception.BaseException;
+import com.zzyl.mapper.ResourceMapper;
+import com.zzyl.service.ResourceService;
+import com.zzyl.utils.EmptyUtil;
+import com.zzyl.utils.NoProcessing;
+import com.zzyl.vo.ResourceVo;
+import com.zzyl.vo.TreeItemVo;
+import com.zzyl.vo.TreeVo;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+public class ResourceServiceImpl implements ResourceService {
+
+    private final ResourceMapper resourceMapper;
+
+    public ResourceServiceImpl(ResourceMapper resourceMapper) {
+        this.resourceMapper = resourceMapper;
+    }
+
+    @Override
+    public List<ResourceVo> findResourceList(ResourceDto resourceDto) {
+        List<Resource> reourceList = resourceMapper.selectList(resourceDto);
+
+        return BeanUtil.copyToList(reourceList, ResourceVo.class);
+    }
+
+    @Override
+    public TreeVo resourceTreeVo(ResourceDto resourceDto) {
+        // 构造查询条件
+        ResourceDto dto = ResourceDto.builder()
+                .dataState(SuperConstant.DATA_STATE_0)
+                .parentResourceNo(NoProcessing.processString(SuperConstant.ROOT_PARENT_ID))
+                .resourceType(SuperConstant.MENU)
+                .build();
+        // 查询所有资源数据
+        List<Resource> resourceList = resourceMapper.selectList(dto);
+
+        if(EmptyUtil.isNullOrEmpty(resourceList)){
+            throw new RuntimeException("资源信息未定义");
+        }
+
+        // 没有根节点 构建根节点
+        Resource rootResource = new Resource();
+        rootResource.setResourceNo(SuperConstant.ROOT_PARENT_ID);
+        rootResource.setResourceName("智慧养老院");
+
+        // 返回的树型集合
+        List<TreeItemVo> itemVos = new ArrayList<>();
+
+        // 递归构建树形结构
+        recursionTreeItem(itemVos, rootResource, resourceList);
+
+        return TreeVo.builder().items(itemVos).build();
+    }
+
+    private void recursionTreeItem(List<TreeItemVo> itemVos, Resource rootResource, List<Resource> resourceList) {
+        // 构建每个资源的属性
+        TreeItemVo treeItemVo = TreeItemVo.builder()
+                .id(rootResource.getResourceNo())
+                .label(rootResource.getResourceName())
+                .build();
+
+        // 获取当前资源下的子资源
+        List<Resource> childrenResourceList = resourceList.stream()
+                        .filter(n -> n.getParentResourceNo().equals(rootResource.getResourceNo()))
+                                .collect(Collectors.toList());
+        // 判断子资源是否为空
+        if (!EmptyUtil.isNullOrEmpty(childrenResourceList)) {
+            List<TreeItemVo> listChildren = new ArrayList<>();
+            childrenResourceList.forEach(resource ->{
+                recursionTreeItem(listChildren, resource, resourceList);
+            });
+            treeItemVo.setChildren(listChildren);
+        }
+
+        itemVos.add(treeItemVo);
+    }
+
+    // 创建资源
+    @Override
+    public void createResource(ResourceDto resourceDto) {
+        // 属性拷贝
+        Resource resource = BeanUtil.copyProperties(resourceDto, Resource.class);
+        // 查询父资源
+        Resource parentResource = resourceMapper.selectByResourceNo(resourceDto.getParentResourceNo());
+        resource.setDataState(parentResource.getDataState());
+        boolean isIgnore = true;
+        // 判断是否为按钮, if true 不限制层级
+        if(StringUtil.isNotEmpty(resourceDto.getResourceType()) && resourceDto.getResourceType().equals(SuperConstant.BUTTON)){
+            isIgnore = false;
+        }
+
+        // 创建当前资源的编号
+        String resourceNo = createResourceNo(resourceDto.getResourceNo(), isIgnore);
+        resource.setResourceNo(resourceNo);
+        resourceMapper.insert(resource);
+
+
+    }
+
+    /**
+     * 创建资源编号
+     * @param parentResourceNo
+     * @param isIgnore
+     * @return
+     */
+    private String createResourceNo(String parentResourceNo, boolean isIgnore) {
+        // 菜单资源 并且 不超过三级
+        if(isIgnore && NoProcessing.processString(parentResourceNo).length() / 3 >= 5){
+            throw new BaseException(BasicEnum.RESOURCE_DEPTH_UPPER_LIMIT);
+        }
+        // 根据父资源编号 查询子资源
+        ResourceDto resourceDto = ResourceDto.builder()
+                .parentResourceNo(parentResourceNo).build();
+        List<Resource> resourceList = resourceMapper.selectList(resourceDto);
+        if(EmptyUtil.isNullOrEmpty(resourceList)){
+            // 无下属节点, 创建新节点编号
+            return NoProcessing.createNo(parentResourceNo, false);
+        }
+        else{
+            // 有下属节点, 在已有节点编号追加
+            // 先获取已有节点的最大值
+            Long maxNo = resourceList.stream()
+                    .map(resource -> {
+                        return Long.valueOf(resource.getResourceNo());
+                    }).max(Comparator.comparing(i -> i)).get();
+            return NoProcessing.createNo(String.valueOf(maxNo), true);
+        }
+    }
+}

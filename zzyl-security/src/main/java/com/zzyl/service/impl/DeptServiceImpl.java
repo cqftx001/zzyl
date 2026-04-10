@@ -83,7 +83,7 @@ public class DeptServiceImpl implements DeptService {
         //转换DeptVo为Dept
         Dept dept = BeanUtil.toBean(deptDto, Dept.class);
 
-        //TODO 检验  部门存在用户,不允许禁用
+        //TODO 检验  部门存在用户,不允许禁用 
 
         //修改
         int flag = deptMapper.updateByPrimaryKey(dept);

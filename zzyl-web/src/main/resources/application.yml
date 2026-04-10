@@ -61,9 +61,9 @@ zzyl:
       ttl: 3600000
     oss:
       endpoint: oss-us-west-1.aliyuncs.com
-      accessKeyId: xxx
-      accessKeySecret: xxx
+      accessKeyId: x
+      accessKeySecret: x
       bucketName: zzyl-kc
   wechat:
-    appId: xxx
-    appSecret: xxx
+    appId: x
+    appSecret: x
